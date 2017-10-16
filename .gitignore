@@ -1,0 +1,9 @@
+*.pyc
+*_pb2.py
+*.json
+*.pem
+*.ppk
+*.ini
+EDA/tensorbaord/
+EDA/replay_state_data/
+EDA/models/
