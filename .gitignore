@@ -4,6 +4,7 @@
 *.pem
 *.ppk
 *.ini
-EDA/tensorbaord/
+*.tfevents
+EDA/tensorboard/
 EDA/replay_state_data/
 EDA/models/

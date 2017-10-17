@@ -27,7 +27,7 @@
 
   <body>
   Select your race and enemy race. </br>
-  Build suggestions will be given when they are clicked on, and custom builds can be made by inputting the desired unit and clicking on the custom node to insert that unit into the build order.
+  The next build unit is given when a current unit is clicked on. Custom builds can be made by inputting the desired unit and player (ie. SCV0, Marine1 etc.) and clicking on the node to insert that unit. This will overwrite the clicked unit and delete all units that follow where the custom unit is inserted. Longer custom builds can be inserted using comma delimeted units (ie. SCV0,Marine1). Clicking the Auto Build button will add the next Auto Build Length number of units to the current build order.
   </br>
   
   <form method = 'POST' action = '/default'>
@@ -42,9 +42,14 @@
       <option value="Zerg">Zerg</option>
     </select>
     <input type="submit" value="submit">
-    </br>
-    <input id="cust_build" type="text" name="cust_build" value="Custom Build">
   </form>
+  <form method = 'POST' action = '/recommend'>
+    Auto Build Length <input name ="length_autobuild" type ="text" value=5 size="2">
+    <input name = "autobuild" type="submit" value="Auto Build">
+    </br>
+    Note: Large build lengths can take a long time to load
+  </form>
+  <input id="cust_build" type="text" name="cust_build" value="Custom Build" onChange="render()">
 
   
 <!-- load the d3.js library -->	
@@ -67,41 +72,34 @@ function getDepth(obj) {
     return 1 + depth
 }
 
-var depth = getDepth(treeData[0]);
+var depth = getDepth(treeData);
 
 // ************** Generate the tree diagram	 *****************
 var margin = {top: 40, right: 40, bottom: 20, left: 40},
-	width = depth*250 - margin.right - margin.left,
-	height = depth*250 - margin.top - margin.bottom;
+	width = 1500 - margin.right - margin.left,
+	height = 10000 - margin.top - margin.bottom;
 	
 var i = 0;
 
 var tree = d3.layout.tree()
-	.size([height/2, width/2]);
+	.size([500, 500]);
 
 var diagonal = d3.svg.diagonal()
 	.projection(function(d) { return [d.x, d.y]; });
 
-var main_svg = d3.select("body").append("svg")
-	.attr("width", width + margin.right + margin.left)
-	.attr("height", height + margin.top + margin.bottom)
-  .append("g")
-	.attr("transform", "translate(" + margin.left + "," + margin.top + ")");
 
-var friendly_svg = main_svg.append("svg")
+var svg = d3.select("body").append("svg")
   .attr("width", width + margin.right + margin.left)
   .attr("height", height + margin.top + margin.bottom)
   .append("g")
   .attr("transform", "translate(" + margin.left + "," + margin.top + ")")
 
-var enemy_svg = main_svg.append("svg")
-  .attr("width", width + margin.right + margin.left)
-  .attr("height", height + margin.top + margin.bottom)
-  .append("g")
-  .attr("transform", "translate(" + (margin.left + width/2) + "," + margin.top + ")");
+
+render();
+
+function render(){
   
-update(treeData[0],friendly_svg);
-update(treeData[1],enemy_svg);
+update(treeData,svg);
 
 function update(source,player_svg) {
 
@@ -110,7 +108,12 @@ function update(source,player_svg) {
 	  links = tree.links(nodes);
 
   // Normalize for fixed-depth.
-  nodes.forEach(function(d) { d.y = d.depth * 100; });
+  nodes.forEach(function(d) {
+    vert = Math.floor(d.depth/7)
+    horz = d.depth % 7
+    d.x =  300  + horz*150
+    d.y =  vert*75
+  })
 
   // Declare the nodes…
   var node = player_svg.selectAll("g.node")
@@ -122,15 +125,19 @@ function update(source,player_svg) {
 	  .attr("transform", function(d) { 
 		  return "translate(" + d.x + "," + d.y + ")"; });
 
- var cust_build = d3.select("#cust_build").node().value
-
-  nodeEnter.append("circle")
+   nodeEnter.append("circle")
 	  .attr("r", 10)
+    .style("stroke", function(d){
+      if (d.name.substr(-1) == 0){
+        return "blue"
+      } else {
+        return "red"
+      }
+    })
     .on("click", function(d) {
-          var url = "/recommend?unit_id=" + d.name + "&cust_build=" + cust_build;
+          var url = "/recommend?unit_id=" + d.name + "&cust_build=" + d3.select("#cust_build").property("value");
           window.location = url;
     })
-	  .style("fill", "#fff");
 
   nodeEnter.append("text")
 	  .attr("y", function(d) { 
@@ -150,6 +157,7 @@ function update(source,player_svg) {
 	  .attr("class", "link")
 	  .attr("d", diagonal);
 
+}
 }
 
 </script>

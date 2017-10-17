@@ -1,6 +1,6 @@
 import flask
 from flask import request
-#from Recommender import Recommender
+from Recommender import BuildRecommender
 import random
 import networkx as nx
 from networkx.readwrite import json_graph
@@ -8,25 +8,24 @@ from networkx.readwrite import json_graph
 
 app = flask.Flask(__name__)
 
-#rec = Recommender()
+rec = BuildRecommender()
 races = ['Terran0','Terran1']
-friendly_tree = nx.DiGraph()
-enemy_tree = nx.DiGraph()
-build_order = []
+tree = nx.DiGraph()
+edge_nodes = [1,1]
 
-def default_tree(tree,race):
+def race_first_unit(race):
     if race == 'Terran0':
         first_unit = 'CommandCenter0'
     elif race == 'Protoss0':
         first_unit = 'Nexus0'
     elif race =='Zerg0':
         first_unit = 'Hatchery0'
-    build_order.append(first_unit)
-    tree.add_node(race,name=race,parent='null')
-    tree.add_node(first_unit,name=first_unit,parent=race)
-    tree.add_node('custom000',name='custom000',parent=race)
-    tree.add_edge(race,first_unit)
-    tree.add_edge(race,'custom000')
+    return first_unit
+
+def default_tree(tree,race):
+    first_unit = race_first_unit(race)
+    edge_nodes[1] = 1
+    tree.add_node(1,name=first_unit,parent='null')
     return tree
 
 @app.route("/")
@@ -34,48 +33,63 @@ def index():
     default_race = 'Terran'
     races[0] = default_race + '0'
     races[1] = default_race + '1'
-    default_tree(friendly_tree,races[0])
-    enemy_tree.add_node(races[1],name=races[1],parent='null')
-    tree_data = [json_graph.tree_data(friendly_tree,root=races[0]),
-                 json_graph.tree_data(enemy_tree,root=races[1])
-                ]
+    default_tree(tree,races[0])
+    tree_data = json_graph.tree_data(tree,root=1)
     return flask.render_template("index.html",tree_data=tree_data)
 
 @app.route("/default",methods=['GET','POST'])
 def default():
-    friendly_tree.clear()
-    enemy_tree.clear()
+    tree.clear()
     races[0] = request.form['friendly_race'] + '0'
     races[1] = request.form['enemy_race'] + '1'
-    default_tree(friendly_tree,races[0])
-    enemy_tree.add_node(races[1],name=races[1],parent='null')
-    tree_data = [json_graph.tree_data(friendly_tree,root=races[0]),
-                 json_graph.tree_data(enemy_tree,root=races[1])
-                ]
+    default_tree(tree,races[0])
+    tree_data = json_graph.tree_data(tree,root=1)
     return flask.render_template("index.html",tree_data=tree_data)
 
 @app.route("/recommend",methods=['GET','POST'])
-def recommend():
-    expansion_unit = request.args.get('unit_id')
-    player = expansion_unit[-1]
-    custom = 'custom' in expansion_unit
-    if custom:
-        unit = request.args.get('cust_build') + player
+def recommend():   
+    if 'autobuild' in request.form.keys():
+        autobuild_len = int(request.form["length_autobuild"])
+        node_order = nx.shortest_path(tree,source=edge_nodes[0],target=edge_nodes[1])     
+        build_order = [tree.node[nd]['name'] for nd in node_order]
+        builds = rec.predict_build(pred_input=build_order,build_length=autobuild_len,races=races)
+        for bld in builds:
+            next_node = len(node_order) + 1
+            tree.add_node(next_node,name=bld,parent=node_order[-1])
+            tree.add_edge(node_order[-1],next_node)
+            node_order.append(next_node)
+            edge_nodes[1] = next_node   
     else:
-        unit = expansion_unit
-    build_order.append(unit)
-    if player == "0":
-        friendly_tree.node[expansion_unit]["name"] = unit
-    elif player == "1":
-        enemy_tree.node[expansion_unit]["name"] = unit
-    else:
-        print("Player not found")
+        expansion_unit = request.args.get('unit_id')
+        custom_build = request.args.get('cust_build')
+        if custom_build != 'Custom Build':
+            builds = custom_build.split(',')
+            node_order = nx.shortest_path(tree,source=edge_nodes[0],target=edge_nodes[1])
+            build_order = [tree.node[nd]['name'] for nd in node_order]
+            nd_index = build_order.index(expansion_unit)
+            expansion_node = node_order[nd_index]
+            tree.node[expansion_node]["name"] = builds[0]
+            edge_nodes[1] = expansion_node
+            node_order = nx.shortest_path(tree,source=edge_nodes[0],target=edge_nodes[1])            
+            for nd in tree.nodes():
+                if nd not in node_order:
+                    tree.remove_node(nd)
+            for bld in builds[1:]:
+                next_node = len(node_order) + 1
+                tree.add_node(next_node,name=bld,parent=node_order[-1])
+                tree.add_edge(node_order[-1],next_node)
+                node_order.append(next_node)
+                edge_nodes[1] = next_node 
+        else:
+            node_order = nx.shortest_path(tree,source=edge_nodes[0],target=edge_nodes[1])
+            build_order = [tree.node[nd]['name'] for nd in node_order]
+            next_build = rec.predict_build(pred_input=build_order,build_length=1,races=races)[-1]
+            next_node = len(node_order) + 1
+            tree.add_node(next_node,name=next_build,parent=node_order[-1])
+            tree.add_edge(node_order[-1],next_node)
+            edge_nodes[1] = next_node
 
-    print(json_graph.tree_data(friendly_tree,root=races[0]))
-
-    tree_data = [json_graph.tree_data(friendly_tree,root=races[0]),
-                 json_graph.tree_data(enemy_tree,root=races[1])
-                ]
+    tree_data = json_graph.tree_data(tree,root=1)
     return flask.render_template("index.html",tree_data=tree_data)
 
 

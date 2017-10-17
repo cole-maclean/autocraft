@@ -13,17 +13,23 @@ class BuildRecommender():
 
     def __init__(self):
         self.unit_ids = self.load_unit_ids()
-        self.vocab = []
-        self.max_seq_len = 0
-        self.race_units = self.load_race_units
+        self.vocab = self.load_vocab()
+        self.max_seq_len = 88
+        self.race_units = self.load_race_units()
+        self.load_graph()
      
     def load_race_units(self):
-        with open("race_units.json") as infile:
+        with open("race_units.json", 'r') as infile:
             race_units = json.load(infile)
         return race_units
 
+    def load_vocab(self):
+        with open("vocab.json", 'r') as  infile:
+            vocab = json.load(infile)
+        return vocab
+
     def load_unit_ids(self):
-        with open("unit_ids.json") as infile:
+        with open("unit_ids.json", 'r') as infile:
             unit_ids = json.load(infile)
             unit_ids = {int(unit_id):name for unit_id,name in unit_ids.items()}
         return unit_ids
@@ -72,7 +78,7 @@ class BuildRecommender():
         rec = copy_vocab[rec_build]
         unit = rec[0:-1]
         player = int(rec[-1])
-        if rec not in pred_input and unit in self.race_units[races[player]]:
+        if rec not in pred_input and unit in self.race_units[races[player][0:-1]]:
             return rec
         else:
             preds = np.delete(preds,rec_build)
@@ -82,8 +88,11 @@ class BuildRecommender():
     def predict_build(self,pred_input,build_length,races):
         #using list creates copy
         copy_vocab = list(self.vocab)
+        rec_builds = []
+        copy_input = list(pred_input)
         for i in range(build_length):
-            build_probs = self.predict(pred_input)
-            rec = self.recurse_predictions(pred_input,build_probs,races,copy_vocab)
-            pred_input.append(rec)
-        return pred_input 
+            build_probs = self.predict(copy_input)
+            rec = self.recurse_predictions(copy_input,build_probs,races,copy_vocab)
+            copy_input.append(rec)
+            rec_builds.append(rec)
+        return rec_builds

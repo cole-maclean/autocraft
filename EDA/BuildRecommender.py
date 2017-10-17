@@ -9,6 +9,8 @@ from sklearn.model_selection import train_test_split
 import random
 from deap import base, creator, tools
 import math
+import dask.array as da
+from tensorflow.python.framework import graph_util
 
 class EarlyStoppingCallback(tflearn.callbacks.Callback):
     def __init__(self, max_val_loss_delta):
@@ -41,7 +43,7 @@ class BuildRecommender():
 
     """
 
-    def __init__(self, replay_data_dir=None,build_order_file=None):
+    def __init__(self, replay_data_dir=None,build_order_file=None,load_graph_file=None):
         self.replay_data_dir = replay_data_dir
         self.build_order_file = build_order_file
         self.unit_ids = self.load_unit_ids()
@@ -49,6 +51,14 @@ class BuildRecommender():
         self.max_seq_len = 0
         self.X = []
         self.y = []
+        self.best_model_score = -math.inf
+        self.best_ind = None
+        self.model = None
+        self.race_units = {'Terran':[],'Zerg':[],'Protoss':[]}
+        if load_graph_file:
+            self.graph = self.load_graph(load_graph_file)
+        else:
+            self.graph = None     
 
     def load_unit_ids(self):
         with open("unit_ids.json") as infile:
@@ -60,31 +70,46 @@ class BuildRecommender():
         for root, dirs, files in os.walk(self.replay_data_dir):
             for name in files:
                 with open(self.replay_data_dir + "/" + name) as infile:
-                    replay_data = [json.loads(line) for line in infile]
-                yield replay_data
-
+                    try:
+                        replay_data = [json.loads(line) for line in infile]
+                        yield replay_data
+                    except ValueError:
+                        print("Replay %s load failed" %(name))
+                        
     def get_replay_build_order(self,replay_data):
-        build_orders = []
+        build_order = []
         friendly_build = []
         enemy_build = []
         for state in replay_data:
             state_build = []
             for unit_data in state[4]:
                 if unit_data[1] > 0:
-                    unit = self.unit_ids[unit_data[0]] 
+                    unit = self.unit_ids[unit_data[0]]
+                    
                     if unit not in friendly_build:
                         friendly_build.append(unit)
                         state_build = state_build + [unit + str(0)]
             for unit_data in state[5]:
                 if unit_data[1] > 0:
-                    unit = self.unit_ids[unit_data[0]] 
+                    unit = self.unit_ids[unit_data[0]]
                     if unit not in enemy_build:
                         enemy_build.append(unit)
                         state_build = state_build + [unit + str(1)]
             if state_build:
-                build_orders = build_orders + state_build
-        return build_orders
-        
+                build_order = build_order + state_build
+        player_id = replay_data[0][2]
+        winner = replay_data[0][9]
+        if player_id == winner:
+            won = True
+        else:
+            won = False
+        race = replay_data[0][10]
+        enemy_race = replay_data[0][11]
+        game_map = replay_data[0][1]
+        replay_id = replay_data[0][0]
+        build_data = [build_order,won,race,enemy_race,game_map,replay_id]
+        return build_data        
+       
     def save_all_build_orders(self):
         #clear save file is exists
         with open(self.build_order_file, 'w') as outfile: pass
@@ -93,35 +118,43 @@ class BuildRecommender():
             with open(self.build_order_file, 'a') as outfile:
                 json.dump(build_order,outfile)
                 outfile.write('\n')
-
-    def get_build_order_vocab(self):
-        self.vocab = []
+    
+    def load_all_build_orders(self):
+        build_orders = []
         with open(self.build_order_file,'r') as infile:
             for line in infile:
-                for unit in json.loads(line):
-                    if unit not in self.vocab:
-                        self.vocab.append(unit)
-        return self.vocab
+                build_data = json.loads(line)
+                self.max_seq_len = max(self.max_seq_len,len(build_data[0])-1)
+                build_orders.append(build_data)
+                races = [build_data[2],build_data[3]]
+                for build in build_data[0]:
+                    unit = build[0:-1]
+                    player = int(build[-1])
+                    if build not in self.vocab:
+                        self.vocab.append(build)
+                    if unit not in self.race_units[races[player]]:
+                        self.race_units[races[player]].append(unit)          
+        return build_orders
 
-    def make_training_data(self):
-        if self.vocab == []:
-            self.get_build_order_vocab()
+    def make_training_data(self,downsample=0.15):
         self.X = []
         self.y = []
+        if not self.vocab:
+            self.load_all_build_orders()
         with open(self.build_order_file,'r') as infile:
             for line in infile:
-                build_order = json.loads(line)
-                self.max_seq_len = max(self.max_seq_len,len(build_order)-1)
-                for i in range(len(build_order)-1):
-                    self.X.append([self.vocab.index(unit) for unit in build_order[0:i+1]])
-                    self.y.append(self.vocab.index(build_order[i+1]))
+                if random.random() <= downsample:
+                    build_order = json.loads(line)[0]
+                    for i in range(len(build_order)-1):
+                        self.X.append([self.vocab.index(unit) for unit in build_order[0:i+1]])
+                        self.y.append(self.vocab.index(build_order[i+1]))
         return self.X, self.y
 
     def decode_individual(self,individual):
         arch = round(individual[0])
-        n_units = int(individual[0]*256)
-        dropout = individual[1]
-        learning_rate = individual[2]/10
+        n_units = int(individual[1]*256)
+        dropout = individual[2]*.9
+        learning_rate = individual[3]/50
         hyperparams = [arch,n_units,dropout,learning_rate]
         return hyperparams
 
@@ -129,19 +162,35 @@ class BuildRecommender():
         hyperparams = self.decode_individual(individual)
         model = self.train(hyperparams)
         model_score = model.evaluate(self.testX, self.testY)
+        if model_score[0] > self.best_model_score:
+            self.model = model
+            self.best_model_score = model_score[0]
+            self.best_ind = individual
+            self.freeze_graph()
         print("Model score = %s" %(model_score))
         return model_score
+    
+    def pred_preprocessing(self,pred_input):
+        X = [[self.vocab.index(unit) for unit in pred_input]]
+        X = pad_sequences(X, maxlen=self.max_seq_len, value=0.,padding='post')
+        return X
 
     def preprocessing(self,X,y):
         trainX, testX, trainY, testY = train_test_split(X, y, test_size=0.2, random_state=42)
         # Sequence padding
         trainX = pad_sequences(trainX, maxlen=self.max_seq_len, value=0.,padding='post')
         testX = pad_sequences(testX, maxlen=self.max_seq_len, value=0.,padding='post')
+        
+        chunks = 10
+        trainX = da.from_array(np.asarray(trainX), chunks=chunks)
+        trainY = da.from_array(np.asarray(trainY), chunks=chunks)
+        testX = da.from_array(np.asarray(testX), chunks=chunks)
+        testY = da.from_array(np.asarray(testY), chunks=chunks)
 
         # Converting labels to binary vectors
         trainY = to_categorical(trainY, nb_classes=len(self.vocab))
         testY = to_categorical(testY, nb_classes=len(self.vocab))
-        return trainX, testX, trainY, testY
+        return trainX, testX, trainY, testY   
 
     def train(self, hyperparams):
         #reset graph from previously trained iterations
@@ -152,30 +201,33 @@ class BuildRecommender():
         self.trainX, self.testX, self.trainY, self.testY = self.preprocessing(self.X,self.y)    
 
         # Hyperparameters
-        num_epochs = 25
+        num_epochs = 30
         arch,n_units,dropout,learning_rate = hyperparams
 
         # Network building
         net = tflearn.input_data([None, self.max_seq_len])
         net = tflearn.embedding(net, input_dim=len(self.vocab), output_dim=128,trainable=True)
         if arch == 0:
-            net = tflearn.lstm(net, n_units=n_units, dropout=dropout,weights_init=tflearn.initializations.xavier(),return_seq=False)
+            net = tflearn.lstm(net, n_units=n_units,
+                               dropout=dropout,
+                               weights_init=tflearn.initializations.xavier(),return_seq=False)
         else:
-            net = tflearn.gru(net, n_units=n_units, dropout=dropout,weights_init=tflearn.initializations.xavier(),return_seq=False)
-        net = tflearn.fully_connected(net, len(self.vocab), activation='softmax',weights_init=tflearn.initializations.xavier())
+            net = tflearn.gru(net, n_units=n_units,
+                              dropout=dropout,
+                              weights_init=tflearn.initializations.xavier(),return_seq=False)
+        net = tflearn.fully_connected(net, len(self.vocab), activation='softmax',
+                                      weights_init=tflearn.initializations.xavier())
         net = tflearn.regression(net, optimizer='adam', learning_rate=learning_rate,
                                  loss='categorical_crossentropy')
+        model = tflearn.DNN(net, tensorboard_verbose=2,
+                            tensorboard_dir='C:/Users/macle/Desktop/Open Source Projects/autocraft/EDA/tensorboard')       
 
         # Training
-        model = tflearn.DNN(net,tensorboard_dir='/tmp/tflearn_logs/shallow_gru/', tensorboard_verbose=2)
-                            #checkpoint_path='/tmp/tflearn_logs/shallow_lstm/',
-                            #best_checkpoint_path="C:/Users/macle/Desktop/UPC Masters/Semester 2/CI/SubRecommender/models/")
- 
         early_stopping_cb = EarlyStoppingCallback(max_val_loss_delta=0.01)
         #Need to catch early stopping to return model
         try:
             model.fit(self.trainX, self.trainY, validation_set=(self.testX, self.testY), show_metric=False,snapshot_epoch=True,
-                      batch_size=64,n_epoch=num_epochs,run_id="%s-%s-%s-%s" %(arch,learning_rate,n_units,dropout),
+                      batch_size=128,n_epoch=num_epochs,run_id="%s-%s-%s-%s" %(arch,n_units,dropout,learning_rate),
                       callbacks=early_stopping_cb)
             return model
         except StopIteration:
@@ -186,8 +238,8 @@ class BuildRecommender():
         #Setup fitness (maximize val_loss)
         creator.create("FitnessMax", base.Fitness, weights=(1.0,))
         #Individual represented as list of 4 floats 
-        #(num_epochs,n_units,dropout,learning_rate)
-        #floats are later scaled to appropriate sizes
+        #(lstm/gru,n_units,dropout,learning_rate)
+        #floats are later decoded to appropriate sizes
         #for each hyperparamter
 
         IND_SIZE=4
@@ -199,7 +251,7 @@ class BuildRecommender():
                          toolbox.attr_float, n=IND_SIZE)
 
         toolbox.register("mate", tools.cxTwoPoint)
-        toolbox.register("mutate", tools.mutGaussian, mu=0, sigma=1, indpb=0.1)
+        toolbox.register("mutate", tools.mutGaussian, mu=0, sigma=0.5, indpb=0.1)
         toolbox.register("select", tools.selTournament, tournsize=3)
         toolbox.register("evaluate", self.evaluate)
         toolbox.register("population", tools.initRepeat, list, toolbox.individual)
@@ -214,6 +266,7 @@ class BuildRecommender():
             ind.fitness.values = fit
 
         for g in range(n_generations):
+            print("Running generation %s" %(g))
             # Select the next generation individuals
             offspring = toolbox.select(pop, len(pop))
             # Clone the selected individuals
@@ -240,15 +293,96 @@ class BuildRecommender():
                 if fit[0] > best_fit:
                     best_ind = ind
                     best_fit = fit[0]
-                
 
             # The population is entirely replaced by the offspring
             pop[:] = offspring
-
+            
         return best_ind, pop
+    
+    def freeze_graph(self):
+        # We precise the file fullname of our freezed graph
+        output_graph = "C:/Users/macle/Desktop/Open Source Projects/autocraft/webapp/model/model.pb"
 
+        # Before exporting our graph, we need to precise what is our output node
+        # This is how TF decides what part of the Graph he has to keep and what part it can dump
+        # NOTE: this variable is plural, because you can have multiple output nodes
+        output_node_names = "InputData/X,FullyConnected/Softmax"
 
-if __name__ == "__main__":
-  builder = BuildRecommender("replay_state_data",'build_orders.json')
-  #builder.train([256,0.1,0.01])
-  builder.evolve(10,0.2,0.2,50)
+        # We clear devices to allow TensorFlow to control on which device it will load operations
+        clear_devices = True
+
+        # We import the meta graph and retrieve a Saver
+        #saver = tf.train.import_meta_graph(input_checkpoint + '.meta', clear_devices=clear_devices)
+
+        # We retrieve the protobuf graph definition
+        graph = self.model.net.graph
+        input_graph_def = graph.as_graph_def()
+
+        # We start a session and restore the graph weights
+        # We use a built-in TF helper to export variables to constants
+        sess = self.model.session
+        output_graph_def = graph_util.convert_variables_to_constants(
+            sess, # The session is used to retrieve the weights
+            input_graph_def, # The graph_def is used to retrieve the nodes 
+            output_node_names.split(",") # The output node names are used to select the usefull nodes
+        ) 
+
+        # Finally we serialize and dump the output graph to the filesystem
+        with tf.gfile.GFile(output_graph, "wb") as f:
+            f.write(output_graph_def.SerializeToString())
+        print("%d ops in the final graph." % len(output_graph_def.node))
+    
+    def load_graph(self):
+        # We load the protobuf file from the disk and parse it to retrieve the 
+        # unserialized graph_def
+        with tf.gfile.GFile("C:/Users/macle/Desktop/Open Source Projects/autocraft/webapp/model/model.pb", "rb") as f:
+            graph_def = tf.GraphDef()
+            graph_def.ParseFromString(f.read())
+
+        # Then, we can use again a convenient built-in function to import a graph_def into the 
+        # current default Graph
+        with tf.Graph().as_default() as graph:
+            tf.import_graph_def(
+                graph_def, 
+                input_map=None, 
+                return_elements=None, 
+                name="prefix", 
+                op_dict=None, 
+                producer_op_list=None
+            )
+        self.graph = graph
+        return graph
+    
+    def predict(self,pred_input):
+        if not self.graph:
+            self.freeze_graph()
+            self.load_graph()
+        pred_input = self.pred_preprocessing(pred_input)
+        x = self.graph.get_tensor_by_name('prefix/InputData/X:0')
+        y = self.graph.get_tensor_by_name("prefix/FullyConnected/Softmax:0")
+        with tf.Session(graph=self.graph) as sess:
+            build_probs = sess.run(y, feed_dict={
+                x: pred_input
+            })
+        return build_probs
+    
+    def recurse_predictions(self,pred_input,preds,races,copy_vocab):
+        rec_build = np.argmax(preds[0])
+        rec = copy_vocab[rec_build]
+        unit = rec[0:-1]
+        player = int(rec[-1])
+        if rec not in pred_input and unit in self.race_units[races[player]]:
+            return rec
+        else:
+            preds = np.delete(preds,rec_build)
+            copy_vocab.pop(rec_build)
+            return self.recurse_predictions(pred_input,preds,races,copy_vocab)       
+    
+    def predict_build(self,pred_input,build_length,races):
+        #using list creates copy
+        copy_vocab = list(self.vocab)
+        for i in range(build_length):
+            build_probs = self.predict(pred_input)
+            rec = self.recurse_predictions(pred_input,build_probs,races,copy_vocab)
+            pred_input.append(rec)
+        return pred_input
