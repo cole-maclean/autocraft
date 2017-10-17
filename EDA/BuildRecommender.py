@@ -11,6 +11,18 @@ from deap import base, creator, tools
 import math
 import dask.array as da
 from tensorflow.python.framework import graph_util
+import multiprocessing
+from tensorflow.python.client import device_lib
+
+os.environ["CUDA_VISIBLE_DEVICES"]="-1"
+
+creator.create("FitnessMax", base.Fitness, weights=(1.0,))
+#Individual represented as list of 4 floats 
+#(lstm/gru,n_units,dropout,learning_rate)
+#floats are later decoded to appropriate sizes
+#for each hyperparamter
+IND_SIZE=4
+creator.create("Individual", list, fitness=creator.FitnessMax)
 
 class EarlyStoppingCallback(tflearn.callbacks.Callback):
     def __init__(self, max_val_loss_delta):
@@ -43,17 +55,19 @@ class BuildRecommender():
 
     """
 
-    def __init__(self, replay_data_dir=None,build_order_file=None,load_graph_file=None):
+    def __init__(self, replay_data_dir=None,build_order_file=None,load_graph_file=None,down_sample=0.2,epochs=30):
         self.replay_data_dir = replay_data_dir
         self.build_order_file = build_order_file
         self.unit_ids = self.load_unit_ids()
         self.vocab = []
         self.max_seq_len = 0
+        self.down_sample = down_sample
         self.X = []
         self.y = []
         self.best_model_score = -math.inf
         self.best_ind = None
         self.model = None
+        self.epochs = epochs
         self.race_units = {'Terran':[],'Zerg':[],'Protoss':[]}
         if load_graph_file:
             self.graph = self.load_graph(load_graph_file)
@@ -136,14 +150,14 @@ class BuildRecommender():
                         self.race_units[races[player]].append(unit)          
         return build_orders
 
-    def make_training_data(self,downsample=0.15):
+    def make_training_data(self):
         self.X = []
         self.y = []
         if not self.vocab:
             self.load_all_build_orders()
         with open(self.build_order_file,'r') as infile:
             for line in infile:
-                if random.random() <= downsample:
+                if random.random() <= self.down_sample:
                     build_order = json.loads(line)[0]
                     for i in range(len(build_order)-1):
                         self.X.append([self.vocab.index(unit) for unit in build_order[0:i+1]])
@@ -166,7 +180,6 @@ class BuildRecommender():
             self.model = model
             self.best_model_score = model_score[0]
             self.best_ind = individual
-            self.freeze_graph()
         print("Model score = %s" %(model_score))
         return model_score
     
@@ -201,104 +214,42 @@ class BuildRecommender():
         self.trainX, self.testX, self.trainY, self.testY = self.preprocessing(self.X,self.y)    
 
         # Hyperparameters
-        num_epochs = 30
         arch,n_units,dropout,learning_rate = hyperparams
 
         # Network building
-        net = tflearn.input_data([None, self.max_seq_len])
-        net = tflearn.embedding(net, input_dim=len(self.vocab), output_dim=128,trainable=True)
-        if arch == 0:
-            net = tflearn.lstm(net, n_units=n_units,
-                               dropout=dropout,
-                               weights_init=tflearn.initializations.xavier(),return_seq=False)
-        else:
-            net = tflearn.gru(net, n_units=n_units,
-                              dropout=dropout,
-                              weights_init=tflearn.initializations.xavier(),return_seq=False)
-        net = tflearn.fully_connected(net, len(self.vocab), activation='softmax',
-                                      weights_init=tflearn.initializations.xavier())
-        net = tflearn.regression(net, optimizer='adam', learning_rate=learning_rate,
-                                 loss='categorical_crossentropy')
-        model = tflearn.DNN(net, tensorboard_verbose=2,
-                            tensorboard_dir='C:/Users/macle/Desktop/Open Source Projects/autocraft/EDA/tensorboard')       
+        local_device_protos = device_lib.list_local_devices()
+        availible_device = [x.name for x in local_device_protos if x.device_type == 'CPU'][0]
+        print(availible_device)
 
-        # Training
-        early_stopping_cb = EarlyStoppingCallback(max_val_loss_delta=0.01)
-        #Need to catch early stopping to return model
-        try:
-            model.fit(self.trainX, self.trainY, validation_set=(self.testX, self.testY), show_metric=False,snapshot_epoch=True,
-                      batch_size=128,n_epoch=num_epochs,run_id="%s-%s-%s-%s" %(arch,n_units,dropout,learning_rate),
-                      callbacks=early_stopping_cb)
-            return model
-        except StopIteration:
-            return model
-   
-    def evolve(self,n_pop,co_prob,mut_prob,n_generations):
+        with tf.device(availible_device):
+            net = tflearn.input_data([None, self.max_seq_len])
+            net = tflearn.embedding(net, input_dim=len(self.vocab), output_dim=128,trainable=True)
+            if arch == 0:
+                net = tflearn.lstm(net, n_units=n_units,
+                                   dropout=dropout,
+                                   weights_init=tflearn.initializations.xavier(),return_seq=False)
+            else:
+                net = tflearn.gru(net, n_units=n_units,
+                                  dropout=dropout,
+                                  weights_init=tflearn.initializations.xavier(),return_seq=False)
+            net = tflearn.fully_connected(net, len(self.vocab), activation='softmax',
+                                          weights_init=tflearn.initializations.xavier())
+            net = tflearn.regression(net, optimizer='adam', learning_rate=learning_rate,
+                                     loss='categorical_crossentropy')
+            model = tflearn.DNN(net, tensorboard_verbose=2,
+                                tensorboard_dir='C:/Users/macle/Desktop/Open Source Projects/autocraft/EDA/tensorboard')       
 
-        #Setup fitness (maximize val_loss)
-        creator.create("FitnessMax", base.Fitness, weights=(1.0,))
-        #Individual represented as list of 4 floats 
-        #(lstm/gru,n_units,dropout,learning_rate)
-        #floats are later decoded to appropriate sizes
-        #for each hyperparamter
-
-        IND_SIZE=4
-        creator.create("Individual", list, fitness=creator.FitnessMax)
-
-        toolbox = base.Toolbox()
-        toolbox.register("attr_float", random.random)
-        toolbox.register("individual", tools.initRepeat, creator.Individual,
-                         toolbox.attr_float, n=IND_SIZE)
-
-        toolbox.register("mate", tools.cxTwoPoint)
-        toolbox.register("mutate", tools.mutGaussian, mu=0, sigma=0.5, indpb=0.1)
-        toolbox.register("select", tools.selTournament, tournsize=3)
-        toolbox.register("evaluate", self.evaluate)
-        toolbox.register("population", tools.initRepeat, list, toolbox.individual)
-
-        pop = toolbox.population(n=n_pop)
-        best_ind = pop[0]
-        best_fit = -math.inf
-
-        # Evaluate the entire population
-        fitnesses = map(toolbox.evaluate, pop)
-        for ind, fit in zip(pop, fitnesses):
-            ind.fitness.values = fit
-
-        for g in range(n_generations):
-            print("Running generation %s" %(g))
-            # Select the next generation individuals
-            offspring = toolbox.select(pop, len(pop))
-            # Clone the selected individuals
-            offspring = list(map(toolbox.clone, offspring))
-
-            # Apply crossover and mutation on the offspring
-            for child1, child2 in zip(offspring[::2], offspring[1::2]):
-                if random.random() < co_prob:
-                    toolbox.mate(child1, child2)
-                    del child1.fitness.values
-                    del child2.fitness.values
-
-            for mutant in offspring:
-                if random.random() < mut_prob:
-                    toolbox.mutate(mutant)
-                    del mutant.fitness.values
-
-            # Evaluate the individuals with an invalid fitness
-            invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
-            fitnesses = map(toolbox.evaluate, invalid_ind)
-            for ind, fit in zip(invalid_ind, fitnesses):
-                ind.fitness.values = fit
-                #keep the single best perfoming ind through all gens
-                if fit[0] > best_fit:
-                    best_ind = ind
-                    best_fit = fit[0]
-
-            # The population is entirely replaced by the offspring
-            pop[:] = offspring
-            
-        return best_ind, pop
-    
+            # Training
+            early_stopping_cb = EarlyStoppingCallback(max_val_loss_delta=0.01)
+            #Need to catch early stopping to return model
+            try:
+                model.fit(self.trainX, self.trainY, validation_set=(self.testX, self.testY), show_metric=False,snapshot_epoch=True,
+                          batch_size=128,n_epoch=self.epochs,run_id="%s-%s-%s-%s" %(arch,n_units,dropout,learning_rate),
+                          callbacks=early_stopping_cb)
+                return model
+            except StopIteration:
+                return model
+      
     def freeze_graph(self):
         # We precise the file fullname of our freezed graph
         output_graph = "C:/Users/macle/Desktop/Open Source Projects/autocraft/webapp/model/model.pb"
@@ -386,3 +337,68 @@ class BuildRecommender():
             rec = self.recurse_predictions(pred_input,build_probs,races,copy_vocab)
             pred_input.append(rec)
         return pred_input
+
+def evolve(builder,n_pop,co_prob,mut_prob,n_generations):
+
+        toolbox = base.Toolbox()
+        #Setup fitness (maximize val_loss)
+        toolbox.register("attr_float", random.random)
+        toolbox.register("individual", tools.initRepeat, creator.Individual,
+                         toolbox.attr_float, n=IND_SIZE)
+        toolbox.register("mate", tools.cxTwoPoint)
+        toolbox.register("mutate", tools.mutGaussian, mu=0, sigma=0.5, indpb=0.1)
+        toolbox.register("select", tools.selTournament, tournsize=3)
+        toolbox.register("evaluate", builder.evaluate)
+        toolbox.register("population", tools.initRepeat, list, toolbox.individual)
+        pool = multiprocessing.Pool(6)
+        toolbox.register("map", pool.map)
+
+        pop = toolbox.population(n=n_pop)
+        best_ind = pop[0]
+        best_fit = -math.inf
+
+        # Evaluate the entire population
+        fitnesses = list(toolbox.map(toolbox.evaluate, pop))
+        for ind, fit in zip(pop, fitnesses):
+            print("Evaluating %s" %ind)
+            ind.fitness.values = fit
+
+        for g in range(n_generations):
+            print("Running generation %s" %(g))
+            # Select the next generation individuals
+            offspring = toolbox.select(pop, len(pop))
+            # Clone the selected individuals
+            offspring = list(map(toolbox.clone, offspring))
+
+            # Apply crossover and mutation on the offspring
+            for child1, child2 in zip(offspring[::2], offspring[1::2]):
+                if random.random() < co_prob:
+                    toolbox.mate(child1, child2)
+                    del child1.fitness.values
+                    del child2.fitness.values
+
+            for mutant in offspring:
+                if random.random() < mut_prob:
+                    toolbox.mutate(mutant)
+                    del mutant.fitness.values
+
+            # Evaluate the individuals with an invalid fitness
+            invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
+            fitnesses = list(toolbox.map(toolbox.evaluate, pop))
+            for ind, fit in zip(invalid_ind, fitnesses):
+                ind.fitness.values = fit
+                #keep the single best perfoming ind through all gens
+                if fit[0] > best_fit:
+                    best_ind = ind
+                    best_fit = fit[0]
+
+            # The population is entirely replaced by the offspring
+            pop[:] = offspring
+        builder.freeze_graph()
+        return builder.best_ind
+
+if __name__== "__main__":
+    builder = BuildRecommender("replay_state_data",'build_orders.json',down_sample=0.05)
+    builder.load_all_build_orders()
+    best_ind = evolve(builder,8,0.4,0.2,3)
+    print(best_ind)
