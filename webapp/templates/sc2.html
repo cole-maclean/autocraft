@@ -7,27 +7,27 @@
 
     <style>
 
-	.node circle {
-	  fill: #fff;
-	  stroke: steelblue;
-	  stroke-width: 3px;
-	}
+  .node circle {
+    fill: #fff;
+    stroke: steelblue;
+    stroke-width: 3px;
+  }
 
-	.node text { font: 12px sans-serif; }
+  .node text { font: 12px sans-serif; }
 
-	.link {
-	  fill: none;
-	  stroke: #ccc;
-	  stroke-width: 2px;
-	}
-	
+  .link {
+    fill: none;
+    stroke: #ccc;
+    stroke-width: 2px;
+  }
+  
     </style>
 
   </head>
 
   <body>
   Select your race and enemy race. </br>
-  The next build unit is given when a current unit is clicked on. Custom builds can be made by inputting the desired unit and player (ie. SCV0, Marine1 etc.) and clicking on the node to insert that unit. This will overwrite the clicked unit and delete all units that follow where the custom unit is inserted. Longer custom builds can be inserted using comma delimeted units (ie. SCV0,Marine1). Clicking the Auto Build button will add the next Auto Build Length number of units to the current build order.
+  The next build unit is given when a unit is clicked on. Custom builds can be made by inputting the desired unit and player (ie. SCV0, Marine1 etc.) and clicking on the node to insert that unit. This will overwrite the clicked unit and delete all units that follow where the custom unit is inserted. Longer custom builds can be inserted using comma delimeted units (ie. SCV0,Marine1). Clicking the Auto Build button will add the next Auto Build Length number of units to the current build order. Blue circles indicate your units and red circles are enemy units.
   </br>
   
   <form method = 'POST' action = '/default'>
@@ -49,12 +49,12 @@
     </br>
     Note: Large build lengths can take a long time to load
   </form>
-  <input id="cust_build" type="text" name="cust_build" value="Custom Build" onChange="render()">
+  <input id="cust_build" type="text" name="cust_build" value="Custom Build">
 
   
-<!-- load the d3.js library -->	
+<!-- load the d3.js library --> 
 <script src="http://d3js.org/d3.v3.min.js"></script>
-	
+  
 <script>
 
 var treeData = {{ tree_data| tojson | safe }};
@@ -74,18 +74,18 @@ function getDepth(obj) {
 
 var depth = getDepth(treeData);
 
-// ************** Generate the tree diagram	 *****************
+// ************** Generate the tree diagram  *****************
 var margin = {top: 40, right: 40, bottom: 20, left: 40},
-	width = 1500 - margin.right - margin.left,
-	height = 10000 - margin.top - margin.bottom;
-	
+  width = 1500 - margin.right - margin.left,
+  height = 10000 - margin.top - margin.bottom;
+  
 var i = 0;
 
 var tree = d3.layout.tree()
-	.size([500, 500]);
+  .size([500, 500]);
 
 var diagonal = d3.svg.diagonal()
-	.projection(function(d) { return [d.x, d.y]; });
+  .projection(function(d) { return [d.x, d.y]; });
 
 
 var svg = d3.select("body").append("svg")
@@ -105,7 +105,7 @@ function update(source,player_svg) {
 
   // Compute the new tree layout.
   var nodes = tree.nodes(source).reverse(),
-	  links = tree.links(nodes);
+    links = tree.links(nodes);
 
   // Normalize for fixed-depth.
   nodes.forEach(function(d) {
@@ -117,16 +117,16 @@ function update(source,player_svg) {
 
   // Declare the nodes…
   var node = player_svg.selectAll("g.node")
-	  .data(nodes, function(d) { return d.id || (d.id = ++i); });
+    .data(nodes, function(d) { return d.id || (d.id = ++i); });
 
   // Enter the nodes.
   var nodeEnter = node.enter().append("g")
-	  .attr("class", "node")
-	  .attr("transform", function(d) { 
-		  return "translate(" + d.x + "," + d.y + ")"; });
+    .attr("class", "node")
+    .attr("transform", function(d) { 
+      return "translate(" + d.x + "," + d.y + ")"; });
 
    nodeEnter.append("circle")
-	  .attr("r", 10)
+    .attr("r", 10)
     .style("stroke", function(d){
       if (d.name.substr(-1) == 0){
         return "blue"
@@ -140,27 +140,27 @@ function update(source,player_svg) {
     })
 
   nodeEnter.append("text")
-	  .attr("y", function(d) { 
-		  return d.children || d._children ? -18 : 18; })
-	  .attr("dy", ".35em")
-	  .attr("text-anchor", "middle")
-	  .text(function(d) { return d.name.slice(0, -1)
+    .attr("y", function(d) { 
+      return d.children || d._children ? -18 : 18; })
+    .attr("dy", ".35em")
+    .attr("text-anchor", "middle")
+    .text(function(d) { return d.name.slice(0, -1)
 ; })
-	  .style("fill-opacity", 1);
+    .style("fill-opacity", 1);
 
   // Declare the links…
   var link = player_svg.selectAll("path.link")
-	  .data(links, function(d) { return d.target.id; });
+    .data(links, function(d) { return d.target.id; });
 
   // Enter the links.
   link.enter().insert("path", "g")
-	  .attr("class", "link")
-	  .attr("d", diagonal);
+    .attr("class", "link")
+    .attr("d", diagonal);
 
 }
 }
 
 </script>
-	
+  
   </body>
 </html>

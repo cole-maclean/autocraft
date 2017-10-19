@@ -219,36 +219,34 @@ class BuildRecommender():
         # Network building
         local_device_protos = device_lib.list_local_devices()
         availible_device = [x.name for x in local_device_protos if x.device_type == 'CPU'][0]
-        print(availible_device)
+        net = tflearn.input_data([None, self.max_seq_len])
+        net = tflearn.embedding(net, input_dim=len(self.vocab), output_dim=128,trainable=True)
 
-        with tf.device(availible_device):
-            net = tflearn.input_data([None, self.max_seq_len])
-            net = tflearn.embedding(net, input_dim=len(self.vocab), output_dim=128,trainable=True)
-            if arch == 0:
-                net = tflearn.lstm(net, n_units=n_units,
-                                   dropout=dropout,
-                                   weights_init=tflearn.initializations.xavier(),return_seq=False)
-            else:
-                net = tflearn.gru(net, n_units=n_units,
-                                  dropout=dropout,
-                                  weights_init=tflearn.initializations.xavier(),return_seq=False)
-            net = tflearn.fully_connected(net, len(self.vocab), activation='softmax',
-                                          weights_init=tflearn.initializations.xavier())
-            net = tflearn.regression(net, optimizer='adam', learning_rate=learning_rate,
-                                     loss='categorical_crossentropy')
-            model = tflearn.DNN(net, tensorboard_verbose=2,
-                                tensorboard_dir='C:/Users/macle/Desktop/Open Source Projects/autocraft/EDA/tensorboard')       
+        if arch == 0:
+            net = tflearn.lstm(net, n_units=n_units,
+                               dropout=dropout,
+                               weights_init=tflearn.initializations.xavier(),return_seq=False)
+        else:
+            net = tflearn.gru(net, n_units=n_units,
+                              dropout=dropout,
+                              weights_init=tflearn.initializations.xavier(),return_seq=False)
+        net = tflearn.fully_connected(net, len(self.vocab), activation='softmax',
+                                      weights_init=tflearn.initializations.xavier())
+        net = tflearn.regression(net, optimizer='adam', learning_rate=learning_rate,
+                                 loss='categorical_crossentropy')
+        model = tflearn.DNN(net, tensorboard_verbose=2,
+                            tensorboard_dir='C:/Users/macle/Desktop/Open Source Projects/autocraft/EDA/tensorboard')       
 
-            # Training
-            early_stopping_cb = EarlyStoppingCallback(max_val_loss_delta=0.01)
-            #Need to catch early stopping to return model
-            try:
-                model.fit(self.trainX, self.trainY, validation_set=(self.testX, self.testY), show_metric=False,snapshot_epoch=True,
-                          batch_size=128,n_epoch=self.epochs,run_id="%s-%s-%s-%s" %(arch,n_units,dropout,learning_rate),
-                          callbacks=early_stopping_cb)
-                return model
-            except StopIteration:
-                return model
+        # Training
+        early_stopping_cb = EarlyStoppingCallback(max_val_loss_delta=0.01)
+        #Need to catch early stopping to return model
+        try:
+            model.fit(self.trainX, self.trainY, validation_set=(self.testX, self.testY), show_metric=False,snapshot_epoch=True,
+                      batch_size=128,n_epoch=self.epochs,run_id="%s-%s-%s-%s" %(arch,n_units,dropout,learning_rate),
+                      callbacks=early_stopping_cb)
+            return model
+        except StopIteration:
+            return model
       
     def freeze_graph(self):
         # We precise the file fullname of our freezed graph
@@ -400,5 +398,5 @@ def evolve(builder,n_pop,co_prob,mut_prob,n_generations):
 if __name__== "__main__":
     builder = BuildRecommender("replay_state_data",'build_orders.json',down_sample=0.05)
     builder.load_all_build_orders()
-    best_ind = evolve(builder,8,0.4,0.2,3)
+    best_ind = evolve(builder,6,0.4,0.2,3)
     print(best_ind)
