@@ -200,10 +200,11 @@ class BuildRecommender():
                     #pop of player marker for race_units dict
                     unit = build[0:-1]
                     player = int(build[-1])
+                    #append new unit to vocab and race_units
                     if build not in self.vocab:
                         self.vocab.append(build)
-                    if unit not in self.race_units[races[player]]:
-                        self.race_units[races[player]].append(unit)          
+                        if unit not in self.race_units[races[player]]:
+                            self.race_units[races[player]].append(unit)          
         return build_orders
 
     def make_training_data(self):
@@ -300,8 +301,7 @@ class BuildRecommender():
         net = tflearn.regression(net, optimizer='adam', learning_rate=learning_rate,
                                  loss='categorical_crossentropy')
         model = tflearn.DNN(net, tensorboard_verbose=2,
-                            tensorboard_dir='C:/Users/macle/Desktop/Open Source Projects/autocraft/EDA/tensorboard',
-                            best_checkpoint_path='C:/Users/macle/Desktop/Open Source Projects/autocraft/EDA/models')       
+                            tensorboard_dir='C:/Users/macle/Desktop/Open Source Projects/autocraft/EDA/tensorboard')       
 
         # Training
         early_stopping_cb = EarlyStoppingCallback(max_val_loss_delta=0.01)
@@ -388,13 +388,13 @@ class BuildRecommender():
         label. Admissable labels are those that haven't been seen in the inputted prediction sequence 
         and exist in the appropriate race's race_unit dictionary'''
         #get most probable label
-        rec_build = np.argmax(preds[0])
+        rec_build = np.argmax(preds)
         rec = copy_vocab[rec_build]
         #pop player identifier off unit to checkin race_units dict
         unit = rec[0:-1]
         player = int(rec[-1])
         #check admissability of predicted label
-        if rec not in pred_input and unit in self.race_units[races[player]]:
+        if rec not in pred_input and unit in self.race_units[races[player][0:-1]]:
             return rec
         else:
             #if not admissable, delete prediction from recs and vocab and recurse 
@@ -410,12 +410,16 @@ class BuildRecommender():
         '''
         #predict the build_length most probable,admissible label from input sequence
         #using list creates copy
-        copy_vocab = list(self.vocab)
+        rec_builds = []
+        copy_input = list(pred_input)     
         for i in range(build_length):
-            build_probs = self.predict(pred_input)
-            rec = self.recurse_predictions(pred_input,build_probs,races,copy_vocab)
-            pred_input.append(rec)
-        return pred_input
+            #using list creates copy
+            copy_vocab = list(self.vocab)
+            build_probs = self.predict(copy_input)
+            rec = self.recurse_predictions(copy_input,build_probs,races,copy_vocab)
+            copy_input.append(rec)
+            rec_builds.append(rec)
+        return rec_builds
 
 def evolve(builder,n_pop,co_prob,mut_prob,n_generations):
         '''Evolve the models hyperarameters (arch,n_units,dropout,learning_rate)'''
