@@ -300,7 +300,8 @@ class BuildRecommender():
         net = tflearn.regression(net, optimizer='adam', learning_rate=learning_rate,
                                  loss='categorical_crossentropy')
         model = tflearn.DNN(net, tensorboard_verbose=2,
-                            tensorboard_dir='C:/Users/macle/Desktop/Open Source Projects/autocraft/EDA/tensorboard')       
+                            tensorboard_dir='C:/Users/macle/Desktop/Open Source Projects/autocraft/EDA/tensorboard',
+                            best_checkpoint_path='C:/Users/macle/Desktop/Open Source Projects/autocraft/EDA/models')       
 
         # Training
         early_stopping_cb = EarlyStoppingCallback(max_val_loss_delta=0.01)
