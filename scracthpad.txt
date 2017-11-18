@@ -1,0 +1,4 @@
+Learn policy and Q function from replays  
+use learned policy for DQN - take learned policy action with prob y and random/max with 1-ymaybe add in random action?
+Learn reward function (ie probability of learning) from replays 
+Frame prediction (predict future frames of game)  

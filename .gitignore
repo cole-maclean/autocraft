@@ -1,10 +1,10 @@
+#Python
 *.pyc
-*_pb2.py
-*.json
+
+#Secrets
 *.pem
 *.ppk
 *.ini
-*.tfevents
-EDA/tensorboard/
-EDA/replay_state_data/
-EDA/models/
+
+#Data Files
+EDA/Build Orders/build_orders.json
