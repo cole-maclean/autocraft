@@ -15,7 +15,7 @@ Platform - Linux
 ### StarCraftII Files  
 
 #### Installation
-Directory: /home/ec2usr/StarCraftII
+Directory: /home/ec2usr/StarCraftII  
 StarCraftII 3.16.1 Linux Install
 
 #### Maps
@@ -32,21 +32,21 @@ Directory: /home/ec2usr/StarCraftII/Replays
 3.16.1 - Pack2
 
 ### Key Python Packages  
-absl-py==0.1.4
-atari-py==0.1.1
-baselines==0.1.4
-gym==0.9.4
-mpi4py==3.0.0
-mpyq==0.2.5
-numpy==1.13.3
-protobuf==3.5.0
-pygame==1.9.3
-PySC2==1.2
-s2clientprotocol==3.19.1.58600.0
-scipy==1.0.0
-six==1.11.0
-tensorflow==1.4.0  
-pysc2-example
+absl-py==0.1.4  
+atari-py==0.1.1  
+baselines==0.1.4  
+gym==0.9.4  
+mpi4py==3.0.0  
+mpyq==0.2.5  
+numpy==1.13.3  
+protobuf==3.5.0  
+pygame==1.9.3 
+PySC2==1.2  
+s2clientprotocol==3.19.1.58600.0  
+scipy==1.0.0  
+six==1.11.0  
+tensorflow==1.4.0    
+pysc2-examples  
 
 ### Users
 username: ec2usr  
@@ -89,8 +89,8 @@ To connect via remote desktop software, a new security group needs to be created
 4. Click 'Add Rule'.
 5. In 'Type', set Custom TCP Rule. Protocol should be set to TCP.
 6. Set Port Range to 4000 (the default port used by NoMachine).
-7. In 'Source' select Anywhere or Custom IP
-Note: Leaving 0.0.0.0/0 means that any computer can connect to your VM over the Internet. If you want to allow a specific set of IP addresses (for users who will be accessing from a fixed IP for example), insert them here. For details see [here](https://www.nomachine.com/accessing-your-remote-linux-desktop-on-amazon-elastic-compute-cloud-via-NoMachine)  
+7. In 'Source' select Anywhere or Custom IP  
+Note: Leaving 0.0.0.0/0 means that any computer can connect to your VM over the Internet. If you want to allow a specific set of IP addresses (for users who will be accessing from a fixed IP for example), insert them here. For details see [here](https://www.nomachine.com/accessing-your-remote-linux-desktop-on-amazon-elastic-compute-cloud-via-NoMachine).  
 8. Select "Create"  
 9. In the Instances tab of your EC2 Dashboard, select the desired instance  
 10. Under the Actions dropdown, select "Networking" --> "Change Security Groups"  
