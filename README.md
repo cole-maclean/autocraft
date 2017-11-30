@@ -3,6 +3,11 @@ A package for collaboratively building Artifical Intelligence agents capable of 
 
 ## Getting Started
 
+### AWS Instance
+
+
+
+### Locally
 
 ### Prerequisites
 
