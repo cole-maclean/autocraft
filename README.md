@@ -5,6 +5,7 @@ A package for collaboratively building Artifical Intelligence agents capable of 
 
 ### AWS Instance
 
+A custom AWS AMI has been created to provide everything needed to get started training AIs for pySC2. For details on setting up and using this AMI, see the [AWS](AWS.md) doc. 
 
 
 ### Locally
