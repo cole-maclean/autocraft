@@ -63,6 +63,7 @@ Here we outline the steps needed to get your own pySC2 AMI running on an AWS ins
 3. On the left panel, select AMIs under IMAGES  
 4. Change the dropdown filter from "Owned by me" to "Public Images"  
 5. In the search field, enter the AMI ID: ami-b78d55cf  
+   Note: This AMI only exists on the US West (Oregon) region. To add this AMI to your region, see [Copying an AMI](http://docs.aws.amazon.com/AWSEC2/latest/UserGuide/CopyingAMIs.html)  
 6. Select the AMI  
 7. Under the Actions dropdown select "Launch" or "Spot Request"  
 8. Follow the Amazon Instance setup prompts with your desired setup (for details see [here](http://docs.aws.amazon.com/AWSEC2/latest/UserGuide/EC2_GetStarted.html#ec2-launch-instance)) 
